@@ -11,6 +11,7 @@ using ENSEK_API.Data;
 using ENSEK_API.Models;
 using System.Globalization;
 using ENSEK_API.ModelValidation;
+using System.Text.RegularExpressions;
 
 namespace ENSEK_API.Controllers
 {
@@ -101,6 +102,13 @@ namespace ENSEK_API.Controllers
                             continue;
                         }
 
+                        Regex rx = new Regex(@"\d{5}");
+                        if (!rx.IsMatch(row[2]))
+                        {
+                            failedResults++;
+                            continue;
+                        }
+
                         int outValue = 0;
                         bool isInt = int.TryParse(row[2], out outValue);
                         if(!isInt || outValue < 0)
@@ -112,6 +120,14 @@ namespace ENSEK_API.Controllers
                         int outId = 0;
                         isInt = int.TryParse(row[0], out outId);
                         if (!isInt || outId < 0)
+                        {
+                            failedResults++;
+                            continue;
+                        }
+
+                        var doubleCheck = meterReadings.Where(e => e.AccountId == outId).OrderBy(e => e.DateTime).ToArray();
+
+                        if(doubleCheck.Length > 0 && (doubleCheck.Last().Value == outValue || doubleCheck.Last().DateTime >= dateTime))
                         {
                             failedResults++;
                             continue;
