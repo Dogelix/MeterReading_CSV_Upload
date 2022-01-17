@@ -6,8 +6,11 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using CsvHelper;
 using ENSEK_API.Data;
 using ENSEK_API.Models;
+using System.Globalization;
+using ENSEK_API.ModelValidation;
 
 namespace ENSEK_API.Controllers
 {
@@ -16,24 +19,26 @@ namespace ENSEK_API.Controllers
     public class MeterReadingController : ControllerBase
     {
         private readonly EnsekEnergyContext _context;
+        private IWebHostEnvironment _hostingEnvironment;
 
-        public MeterReadingController(EnsekEnergyContext context)
+        public MeterReadingController(EnsekEnergyContext context, IWebHostEnvironment environment)
         {
             _context = context;
+            _hostingEnvironment = environment;
         }
 
         // GET: api/MeterReading
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<MeterReading>>> GetMeterReading()
+        public ActionResult<MeterReading> GetMeterReading()
         {
-            return await _context.MeterReading.ToListAsync();
+            return BadRequest("AccountId is Required");
         }
 
         // GET: api/MeterReading/5
-        [HttpGet("{id}")]
-        public async Task<ActionResult<MeterReading>> GetMeterReading(int id)
+        [HttpGet("{AccountId}")]
+        public ActionResult<MeterReading[]> GetMeterReadingsForAccount(int AccountId)
         {
-            var meterReading = await _context.MeterReading.FindAsync(id);
+            var meterReading =  _context.MeterReading.Where(e => e.AccountId == AccountId).ToArray();
 
             if (meterReading == null)
             {
@@ -44,45 +49,99 @@ namespace ENSEK_API.Controllers
         }
 
         // PUT: api/MeterReading/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPut("{id}")]
-        public async Task<IActionResult> PutMeterReading(int id, MeterReading meterReading)
+        public IActionResult PutMeterReading(int id)
         {
-            if (id != meterReading.ReadingId)
-            {
-                return BadRequest();
-            }
-
-            _context.Entry(meterReading).State = EntityState.Modified;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!MeterReadingExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
-            }
-
-            return NoContent();
+            return StatusCode(405);
         }
 
         // POST: api/MeterReading
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPost]
-        public async Task<ActionResult<MeterReading>> PostMeterReading(MeterReading meterReading)
+        [HttpPost("meter-reading-uploads")]
+        public async Task<ActionResult<MeterReading>> UploadMeterReadingsCsv(IFormFile csvFile)
         {
-            _context.MeterReading.Add(meterReading);
-            await _context.SaveChangesAsync();
+            string uploads = Path.Combine(_hostingEnvironment.ContentRootPath, "TemporaryStore");
+            string filePath = "";
+            if (csvFile.FileName.EndsWith(".csv"))
+            {
+                try
+                {
+                    if (!Directory.Exists(uploads))
+                    {
+                        Directory.CreateDirectory(uploads);
+                    }
 
-            return CreatedAtAction("GetMeterReading", new { id = meterReading.ReadingId }, meterReading);
+                    filePath = Path.Combine(uploads, csvFile.FileName);
+                    using (Stream fileStream = new FileStream(filePath, FileMode.Create))
+                    {
+                        await csvFile.CopyToAsync(fileStream);
+                    }
+                }
+                catch (Exception e)
+                {
+                    return StatusCode(500, e);
+                }
+
+                List<MeterReading> meterReadings = new List<MeterReading>();
+                int failedResults = 0;
+
+                using (var reader = new StreamReader(filePath))
+                {
+                    string[] headers = reader.ReadLine().Split(",");
+                    while (!reader.EndOfStream)
+                    {
+                        string[] row = reader.ReadLine().Split(",");
+                        DateTime dateTime;
+                        try
+                        {
+                            dateTime = DateTime.Parse(row[1]);
+                        }
+                        catch
+                        {
+                            failedResults++;
+                            continue;
+                        }
+
+                        int outValue = 0;
+                        bool isInt = int.TryParse(row[2], out outValue);
+                        if(!isInt || outValue < 0)
+                        {
+                            failedResults++;
+                            continue;
+                        }
+
+                        int outId = 0;
+                        isInt = int.TryParse(row[0], out outId);
+                        if (!isInt || outId < 0)
+                        {
+                            failedResults++;
+                            continue;
+                        }
+
+                        meterReadings.Add(new MeterReading()
+                        {
+                            AccountId = outId,
+                            DateTime = dateTime,
+                            Value = outValue
+                        });
+                    }
+
+                    var validAccountIds = _context.Accounts.Select(a => a.AccountId).ToList();
+
+                    failedResults += meterReadings.Where(a => !validAccountIds.Contains(a.AccountId)).Count();
+
+                    meterReadings.RemoveAll(a => !validAccountIds.Contains(a.AccountId));
+
+                    _context.MeterReading.AddRange(meterReadings);
+
+                    await _context.SaveChangesAsync();
+                }
+
+                return Ok(new { SuccessCount = meterReadings.Count, FailureCount = failedResults });
+            }
+            else
+            {
+                return BadRequest();
+            }
         }
 
         // DELETE: api/MeterReading/5
@@ -99,11 +158,6 @@ namespace ENSEK_API.Controllers
             await _context.SaveChangesAsync();
 
             return NoContent();
-        }
-
-        private bool MeterReadingExists(int id)
-        {
-            return _context.MeterReading.Any(e => e.ReadingId == id);
         }
     }
 }
