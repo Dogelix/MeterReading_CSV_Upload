@@ -1,0 +1,54 @@
+﻿@page "/account-readings"
+@inject HttpClient Http
+@using ENSEK_API.Models;
+
+<PageTitle>Account Readings</PageTitle>
+
+<h1>Account Readings</h1>
+
+@if (accounts == null)
+{
+    <p><em>Loading...</em></p>
+}
+else if(viewedAccount != null)
+{
+    <button class="btn btn-warning" @onclick="ReturnView">Return to Accounts</button>
+    <AccountData Account="viewedAccount"></AccountData>
+}
+else
+{
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Account ID</th>
+                <th>First Name</th>
+                <th>Last Name</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var account in accounts)
+            {
+                <tr @onclick="(() => OpenAccountReadings(account))">
+                    <td>@account.AccountId.ToString()</td>
+                    <td>@account.FirstName</td>
+                    <td>@account.LastName</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private Accounts[]? accounts;
+
+    private Accounts viewedAccount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        accounts = await Http.GetFromJsonAsync<Accounts[]>("https://localhost:7101/api/Accounts/");
+    }
+
+    private void OpenAccountReadings(Accounts account) => viewedAccount = account;
+
+    private void ReturnView() => viewedAccount = null;
+}

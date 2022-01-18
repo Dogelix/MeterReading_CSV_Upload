@@ -1,0 +1,32 @@
+﻿@using ENSEK_API.Models;
+@inject HttpClient Http
+
+<table class="table">
+    <thead>
+        <tr>
+            <td>Time Stamp</td>
+            <td>Value</td>
+        </tr>
+    </thead>
+    @if(readings.Length > 0)
+    {
+        <tbody>
+            @foreach(MeterReading m in readings)
+            {
+                <tr>
+                    <td>@m.DateTime.ToShortDateString() @m.DateTime.ToShortTimeString()</td>
+                    <td>@m.Value.ToString()</td>
+                </tr>
+            }    
+        </tbody>
+    }
+</table>
+
+@code {
+    [Parameter]
+    public Accounts Account { get; set; }
+
+    private MeterReading[] readings;
+
+    protected override async Task OnInitializedAsync() => readings = await Http.GetFromJsonAsync<MeterReading[]>("https://localhost:7101/api/MeterReading/" + Account.AccountId);
+}
